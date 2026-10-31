@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Decalque AR</title>
+<style>
+:root{--bg:#0e0e10;--fg:#f2f2f2;--ac:#7c5cff;--panel:rgba(20,20,24,.85);color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#0e0e10;--fg:#f2f2f2}}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden;touch-action:none}
+#stage{position:relative;width:100%;height:100%;overflow:hidden}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+#ov{position:absolute;left:50%;top:50%;transform-origin:center;max-width:none;user-select:none;-webkit-user-drag:none;pointer-events:none;display:none}
+#msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:15px;line-height:1.5;z-index:1;pointer-events:none}
+#bar{position:absolute;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom,0px));background:var(--panel);backdrop-filter:blur(10px);border-radius:16px;padding:10px;z-index:5;display:flex;flex-direction:column;gap:8px;touch-action:auto}
+.row{display:flex;gap:8px;align-items:center}
+button,label.btn{background:#2a2a31;color:var(--fg);border:0;border-radius:10px;padding:10px 12px;font-size:14px;cursor:pointer;flex:1;text-align:center}
+button.on{background:var(--ac)}
+input[type=range]{flex:1;accent-color:var(--ac)}
+small{opacity:.7;width:64px}
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="v" autoplay playsinline muted></video>
+  <img id="ov" alt="">
+  <div id="msg">Carregando a câmera…</div>
+  <div id="bar">
+    <div class="row">
+      <label class="btn">📷 Escolher imagem<input id="f" type="file" accept="image/*" hidden></label>
+      <button id="lock">🔓 Travar</button>
+      <button id="bw">P&amp;B</button>
+      <button id="flip">↔ Espelhar</button>
+    </div>
+    <div class="row"><small>Opacidade</small><input id="op" type="range" min="5" max="100" value="50"></div>
+    <div class="row"><small>Tamanho</small><input id="sc" type="range" min="10" max="400" value="100"></div>
+  </div>
+</div>
+<script>
+const v=document.getElementById('v'),ov=document.getElementById('ov'),msg=document.getElementById('msg');
+let x=0,y=0,s=1,r=0,fx=1,locked=false,bw=false;
+function apply(){
+  ov.style.transform=`translate(-50%,-50%) translate(${x}px,${y}px) rotate(${r}rad) scale(${s*fx},${s})`;
+  ov.style.opacity=document.getElementById('op').value/100;
+  ov.style.filter=bw?'grayscale(1) contrast(1.8)':'none';
+}
+async function cam(){
+  try{
+    const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+    v.srcObject=st;msg.textContent='Escolha uma imagem pra aparecer por cima da câmera.';
+  }catch(e){
+    msg.innerHTML='Não consegui abrir a câmera.<br>Libera a permissão de câmera (ou abre a página no navegador direto).<br><small>'+(e.name||'')+'</small>';
+  }
+}
+cam();
+document.getElementById('f').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  ov.onload=()=>{
+    const k=Math.min(innerWidth/ov.naturalWidth,innerHeight/ov.naturalHeight)*.8;
+    ov.style.width=ov.naturalWidth+'px';
+    s=k;x=0;y=0;r=0;document.getElementById('sc').value=Math.round(k*100);
+    ov.style.display='block';msg.style.display='none';apply();
+  };
+  ov.src=URL.createObjectURL(f);
+};
+document.getElementById('op').oninput=apply;
+document.getElementById('sc').oninput=e=>{s=e.target.value/100;apply()};
+document.getElementById('lock').onclick=e=>{locked=!locked;e.target.textContent=locked?'🔒 Travado':'🔓 Travar';e.target.classList.toggle('on',locked)};
+document.getElementById('bw').onclick=e=>{bw=!bw;e.target.classList.toggle('on',bw);apply()};
+document.getElementById('flip').onclick=()=>{fx*=-1;apply()};
+// gestos: 1 dedo arrasta, 2 dedos pinça/gira
+const ptr=new Map();let last=null;
+const st=document.getElementById('stage');
+function pair(){const p=[...ptr.values()];return{cx:(p[0].x+p[1].x)/2,cy:(p[0].y+p[1].y)/2,d:Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y),a:Math.atan2(p[1].y-p[0].y,p[1].x-p[0].x)}}
+st.addEventListener('pointerdown',e=>{if(e.target.closest('#bar')||locked)return;st.setPointerCapture(e.pointerId);ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});last=ptr.size==2?pair():null});
+st.addEventListener('pointermove',e=>{
+  if(!ptr.has(e.pointerId)||locked)return;
+  const o=ptr.get(e.pointerId);
+  if(ptr.size==1){x+=e.clientX-o.x;y+=e.clientY-o.y;ptr.set(e.pointerId,{x:e.clientX,y:e.clientY})}
+  else if(ptr.size==2){ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});const n=pair();
+    if(last){s*=n.d/last.d;r+=(n.a-last.a)*fx;x+=n.cx-last.cx;y+=n.cy-last.cy;document.getElementById('sc').value=Math.min(400,Math.max(10,Math.round(s*100)))}
+    last=n}
+  apply();
+});
+['pointerup','pointercancel'].forEach(t=>st.addEventListener(t,e=>{ptr.delete(e.pointerId);last=ptr.size==2?pair():null}));
+</script>
+</body>
+</html>
